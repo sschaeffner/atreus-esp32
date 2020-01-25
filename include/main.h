@@ -1,4 +1,5 @@
 void readRow(int rowToRead);
-void resetCurrentKeys();
-void addCurrentKey(int key);
-void removeCurrentKey(int key);
+void resetCurrentSentKeys();
+void addCurrentKey(uint8_t keyIndex);
+void removeCurrentKey(uint8_t keyIndex);
+uint16_t keyIndexToKey(uint8_t keyIndex);

@@ -3,11 +3,11 @@
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
+#include <driver/adc.h>
 #include "BLE2902.h"
 #include "BLEHIDDevice.h"
 #include "HIDTypes.h"
 #include "HIDKeyboardTypes.h"
-#include <driver/adc.h>
 #include "main.h"
 #include "keys.h"
 
@@ -17,21 +17,32 @@
 uint8_t row_pins[] = {2, 4, 5, 13};
 uint8_t column_pins[] = {14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26};
 
-
-
 uint16_t layer0[] = {
   KEY_Q,    KEY_W,    KEY_E,    KEY_R,      KEY_T,            0,          KEY_Y,      KEY_U,    KEY_I,      KEY_O,              KEY_P,
   KEY_A,    KEY_S,    KEY_D,    KEY_F,      KEY_G,            0,          KEY_H,      KEY_J,    KEY_K,      KEY_L,              KEY_SEMICOLON,
   KEY_Z,    KEY_X,    KEY_C,    KEY_V,      KEY_B,            MOD_ALT,    KEY_N,      KEY_M,    KEY_COMMA,  KEY_DOT,            KEY_SLASH,
-  KEY_ESC,  KEY_TAB,  MOD_GUI,  MOD_SHIFT,  KEY_BACKSPACE,    MOD_CTRL,   KEY_SPACE,  0,        KEY_MINUS,  KEY_SINGLE_APOSTR,  KEY_ENTER
+  KEY_ESC,  KEY_TAB,  MOD_GUI,  MOD_SHIFT,  KEY_BACKSPACE,    MOD_CTRL,   KEY_SPACE,  MOD_L1,   KEY_MINUS,  KEY_SINGLE_APOSTR,  KEY_ENTER
+};
+
+uint16_t layer1[] = {
+  KEY_EXCLAMATION, KEY_AT, KEY_ARROW_UP, KEY_CURLY_BRACKET_OPEN, KEY_CURLY_BRACKET_CLOSE, 0, KEY_PAGE_UP, KEY_7, KEY_8, KEY_9, KEY_TIMES,
+  KEY_HASH, KEY_ARROW_LEFT, KEY_ARROW_DOWN, KEY_ARROW_RIGHT, KEY_DOLLAR, 0, KEY_PAGE_DOWN, KEY_4, KEY_5, KEY_6, KEY_PLUS,
+  KEY_SQUARE_BRACKET_OPEN, KEY_SQUARE_BRACKET_CLOSE, KEY_ROUND_BRACKET_OPEN, KEY_ROUND_BRACKET_CLOSE, KEY_AMPERSAND, MOD_ALT, KEY_GRACE_ACCENT, KEY_1, KEY_2, KEY_3, KEY_BACKSLASH,
+  0, 0,  MOD_GUI,  MOD_SHIFT,  KEY_BACKSPACE, MOD_CTRL, KEY_SPACE, MOD_L1, KEY_DOT, KEY_0, KEY_EQUALS
 };
 
 bool keys_pressed_old[ROWS * COLUMNS] = { 0 };
 bool keys_pressed[ROWS * COLUMNS] = { 0 };
 
+uint8_t layer = 0;
+
 bool changesToSend = false;
-uint8_t modifiers_sent = 0x00;
-uint8_t keys_pressed_sent[6] = { 0 };
+
+uint8_t keyNr = 0;
+uint16_t keyCodes[ROWS * COLUMNS] = { 0 };
+
+uint8_t modifiersSent = 0x00;
+uint8_t keyCodesSent[6] = { 0 };
 
 BLEHIDDevice* hid;
 BLECharacteristic* input;
@@ -58,7 +69,7 @@ class MyCallbacks : public BLEServerCallbacks {
 };
 
 /*
- * This callback is connect with output report. In keyboard output report report special keys changes, like CAPSLOCK, NUMLOCK
+ * This callback is connected with output report. In keyboard output report report special keys changes, like CAPSLOCK, NUMLOCK
  * We can add digital pins with LED to show status
  * bit 0 - NUM LOCK
  * bit 1 - CAPS LOCK
@@ -103,13 +114,13 @@ void taskServer(void*){
       USAGE_MAXIMUM(1),   0xE7,
       LOGICAL_MINIMUM(1), 0x00,
       LOGICAL_MAXIMUM(1), 0x01,
-      REPORT_SIZE(1),     0x01,       //   1 byte (Modifier)
+      REPORT_SIZE(1),     0x01,       //   1 uint8_t (Modifier)
       REPORT_COUNT(1),    0x08,
       HIDINPUT(1),           0x02,       //   Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position
-      REPORT_COUNT(1),    0x01,       //   1 byte (Reserved)
+      REPORT_COUNT(1),    0x01,       //   1 uint8_t (Reserved)
       REPORT_SIZE(1),     0x08,
       HIDINPUT(1),           0x01,       //   Const,Array,Abs,No Wrap,Linear,Preferred State,No Null Position
-      REPORT_COUNT(1),    0x06,       //   6 bytes (Keys)
+      REPORT_COUNT(1),    0x06,       //   6 uint8_ts (Keys)
       REPORT_SIZE(1),     0x08,
       LOGICAL_MINIMUM(1), 0x00,
       LOGICAL_MAXIMUM(1), 0x65,       //   101 keys
@@ -139,7 +150,6 @@ void taskServer(void*){
 
     ESP_LOGD(LOG_TAG, "Advertising started!");
     delay(portMAX_DELAY);
-  
 };
 
 void setup() {
@@ -199,25 +209,48 @@ void loop() {
         // KEY_DOWN
         Serial.printf("KEY_DOWN row %i column %i\n", row, column);
 
-        addCurrentKey(layer0[(row * COLUMNS) + column]);
+        addCurrentKey((row * COLUMNS) + column);
         changesToSend = true;
 
       } else if (!keys_pressed[(row * COLUMNS) + column] && keys_pressed_old[(row * COLUMNS) + column]) {
         // KEY_UP
         Serial.printf("KEY_UP row %i column %i\n", row, column);
 
-        removeCurrentKey(layer0[(row * COLUMNS) + column]);
+        removeCurrentKey((row * COLUMNS) + column);
         changesToSend = true;
       }
     }
   }
 
   if (changesToSend) {
+    resetCurrentSentKeys();
     Serial.printf("\n\n\n");
-    uint8_t msg[] = {modifiers_sent, 0, keys_pressed_sent[0], keys_pressed_sent[1],keys_pressed_sent[2],keys_pressed_sent[3],keys_pressed_sent[4],keys_pressed_sent[5]};
 
-    Serial.printf("modifiers sent: %02x\n", modifiers_sent);
-    Serial.printf("keys sent: %i %i %i %i %i %i\n", keys_pressed_sent[0], keys_pressed_sent[1],keys_pressed_sent[2],keys_pressed_sent[3],keys_pressed_sent[4],keys_pressed_sent[5]);
+    int keyCodesSentIndex = 0;
+
+    for (int i = 0; i < ROWS * COLUMNS; i++) {
+      if (keyCodes[i] != 0) {
+        uint8_t keyCodeType = keyCodes[i] >> 8;
+
+        if (keyCodeType == 0x00) { // normal key code -> send as is
+          keyCodesSent[keyCodesSentIndex] = keyCodes[i];
+          ++keyCodesSentIndex;
+
+        } else if (keyCodeType == MOD) { // normal modifier -> send as modifier
+          modifiersSent |= keyCodes[i];
+
+        } else if (keyCodeType == 0x02) { // key code with modifier (shift) -> send modifier and key code
+          modifiersSent |= (keyCodes[i] >> 8);
+          keyCodesSent[keyCodesSentIndex] = keyCodes[i];
+          ++keyCodesSentIndex;
+        }
+      }
+    }
+
+    uint8_t msg[] = {modifiersSent, 0, keyCodesSent[0],keyCodesSent[1],keyCodesSent[2],keyCodesSent[3],keyCodesSent[4],keyCodesSent[5]};
+
+    Serial.printf("modifiers sent: %02x\n", modifiersSent);
+    Serial.printf("keys sent: %i %i %i %i %i %i\n", keyCodesSent[0],keyCodesSent[1],keyCodesSent[2],keyCodesSent[3],keyCodesSent[4],keyCodesSent[5]);
 
     input->setValue(msg,sizeof(msg));
     input->notify();
@@ -233,48 +266,60 @@ void readRow(int rowToRead) {
   delayMicroseconds(100);
 }
 
-void resetCurrentKeys() {
-  modifiers_sent = 0x00;
-  memset(keys_pressed_sent, 0, 6);
+void resetCurrentSentKeys() {
+  modifiersSent = 0x00;
+  memset(keyCodesSent, 0, 6);
 }
 
+void addCurrentKey(uint8_t keyIndex) {
+  Serial.printf("keyIndex=%i layer=%i\nkeyNr=%i\n", keyIndex, layer, keyNr);
 
-void addCurrentKey(int key) {
-  Serial.printf("key=%i\n", key);
+  if (keyNr >= 6) {
+    Serial.printf("Already sending 6 key codes.\n");
+    return;
+  }
 
-  uint8_t upper = (key >> 8);
-  if (upper == 0x00) {
-    // normal key
+  uint16_t key = keyIndexToKey(keyIndex);
 
-    for (int i = 0; i < 6; i++) {
-      if (keys_pressed_sent[i] == 0x00) {
-        keys_pressed_sent[i] = key;
-        break;
-      }
-    }
+  if (key == MOD_L1) {
+    layer = 1;
+  }
 
-  } else if (upper == 0x01) {
-    // modifier
-    uint8_t lower = key;
-    modifiers_sent |= lower;
+  uint8_t keyCodeType = (key >> 8);
+
+  if (keyCodeType == 0x00       // normal key code
+      || keyCodeType == 0x02) { // key code with modifier
+    ++keyNr;
+  } // else -> only modifier -> no increase in key codes
+
+  keyCodes[keyIndex] = key;
+}
+
+void removeCurrentKey(uint8_t keyIndex) {
+  uint16_t key = keyIndexToKey(keyIndex);
+
+  if (key == MOD_L1) {
+    layer = 0;
+  }
+
+  if (keyCodes[keyIndex] != 0) {
+    uint8_t keyCodeType = (keyCodes[keyIndex] >> 8);
+
+    if (keyCodeType == 0x00       // normal key code
+        || keyCodeType == 0x02) { // key code with modifier
+      --keyNr;
+    } // else -> only modifier -> no decrease in key codes
+
+    keyCodes[keyIndex] = 0;
   }
 }
 
-void removeCurrentKey(int key) {
-  uint8_t upper = (key >> 8);
-  if (upper == 0x00) {
-    // normal key
-
-    for (int i = 0; i < 6; i++) {
-      if (keys_pressed_sent[i] == key) {
-        keys_pressed_sent[i] = 0x00;
-        break;
-      }
-    }
-
-  } else if (upper == 0x01) {
-    // modifier
-    uint8_t lower = key;
-    modifiers_sent &= ~lower;
+uint16_t keyIndexToKey(uint8_t keyIndex) {
+  if (layer == 0) {
+    return layer0[keyIndex];
+  } else if (layer == 1) {
+    return layer1[keyIndex];
   }
+
+  return 0;
 }
