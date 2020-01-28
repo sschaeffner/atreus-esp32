@@ -21,14 +21,14 @@ uint16_t layer0[] = {
   KEY_Q,    KEY_W,    KEY_E,    KEY_R,      KEY_T,            0,          KEY_Y,      KEY_U,    KEY_I,      KEY_O,              KEY_P,
   KEY_A,    KEY_S,    KEY_D,    KEY_F,      KEY_G,            0,          KEY_H,      KEY_J,    KEY_K,      KEY_L,              KEY_SEMICOLON,
   KEY_Z,    KEY_X,    KEY_C,    KEY_V,      KEY_B,            MOD_ALT,    KEY_N,      KEY_M,    KEY_COMMA,  KEY_DOT,            KEY_SLASH,
-  KEY_ESC,  KEY_TAB,  MOD_GUI,  MOD_SHIFT,  KEY_BACKSPACE,    MOD_CTRL,   KEY_SPACE,  MOD_L1,   KEY_MINUS,  KEY_SINGLE_APOSTR,  KEY_ENTER
+  KEY_ESC,  KEY_TAB,  MOD_CTRL, MOD_SHIFT,  KEY_BACKSPACE,    MOD_GUI,   KEY_SPACE,  MOD_L1,   KEY_MINUS,  KEY_SINGLE_APOSTR,  KEY_ENTER
 };
 
 uint16_t layer1[] = {
   KEY_EXCLAMATION, KEY_AT, KEY_ARROW_UP, KEY_CURLY_BRACKET_OPEN, KEY_CURLY_BRACKET_CLOSE, 0, KEY_PAGE_UP, KEY_7, KEY_8, KEY_9, KEY_TIMES,
   KEY_HASH, KEY_ARROW_LEFT, KEY_ARROW_DOWN, KEY_ARROW_RIGHT, KEY_DOLLAR, 0, KEY_PAGE_DOWN, KEY_4, KEY_5, KEY_6, KEY_PLUS,
   KEY_SQUARE_BRACKET_OPEN, KEY_SQUARE_BRACKET_CLOSE, KEY_ROUND_BRACKET_OPEN, KEY_ROUND_BRACKET_CLOSE, KEY_AMPERSAND, MOD_ALT, KEY_GRACE_ACCENT, KEY_1, KEY_2, KEY_3, KEY_BACKSLASH,
-  0, 0,  MOD_GUI,  MOD_SHIFT,  KEY_BACKSPACE, MOD_CTRL, KEY_SPACE, MOD_L1, KEY_DOT, KEY_0, KEY_EQUALS
+  0, 0, MOD_CTRL, MOD_SHIFT, KEY_BACKSPACE, MOD_GUI, KEY_SPACE, MOD_L1, KEY_DOT, KEY_0, KEY_EQUALS
 };
 
 bool keys_pressed_old[ROWS * COLUMNS] = { 0 };
@@ -138,6 +138,37 @@ void taskServer(void*){
       HIDOUTPUT(1),          0x01,       //   Const,Array,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile
       END_COLLECTION(0)
     };
+
+    
+    //0x05, 0x0C, /*        Usage Page (Consumer Devices)        */
+    //0x09, 0x01, /*        Usage (Consumer Control)            */
+    //0xA1, 0x01, /*        Collection (Application)            */
+    //0x85, 0x02,    /*        Report ID=2                            */
+    //0x05, 0x0C, /*        Usage Page (Consumer Devices)        */
+    //0x15, 0x00, /*        Logical Minimum (0)                    */
+    //0x25, 0x01, /*        Logical Maximum (1)                    */
+    //0x75, 0x01, /*        Report Size (1)                        */
+    //0x95, 0x10, /*        Report Count (16)                    */
+    //0x09, 0xe2, // USAGE (Mute) 0x01
+    //0x09, 0xe9, // USAGE (Volume Up) 0x02
+    //0x09, 0xea, // USAGE (Volume Down) 0x03
+    //0x09, 0xcd, // USAGE (Play/Pause) 0x04
+    //0x09, 0xb7, // USAGE (Stop) 0x05
+    //0x09, 0xb6, // USAGE (Scan Previous Track) 0x06
+    //0x09, 0xb5, // USAGE (Scan Next Track) 0x07
+    //0x0a, 0x8a, 0x01, // USAGE (Mail) 0x08
+    //0x0a, 0x92, 0x01, // USAGE (Calculator) 0x09
+    //0x0a, 0x21, 0x02, // USAGE (www search) 0x0a
+    //0x0a, 0x23, 0x02, // USAGE (www home) 0x0b
+    //0x0a, 0x2a, 0x02, // USAGE (www favorites) 0x0c
+    //0x0a, 0x27, 0x02, // USAGE (www refresh) 0x0d
+    //0x0a, 0x26, 0x02, // USAGE (www stop) 0x0e
+    //0x0a, 0x25, 0x02, // USAGE (www forward) 0x0f
+    //0x0a, 0x24, 0x02, // USAGE (www back) 0x10
+    //0x81, 0x62, // INPUT (Data,Var,Abs,NPrf,Null)    
+    //0xC0,        /*        End Collection                        */
+
+    
 
     hid->reportMap((uint8_t*)report, sizeof(report));
     hid->startServices();
@@ -283,6 +314,10 @@ void addCurrentKey(uint8_t keyIndex) {
 
   if (key == MOD_L1) {
     layer = 1;
+  }
+
+  if (key == 0) { // no key code mapped
+    return;
   }
 
   uint8_t keyCodeType = (key >> 8);
