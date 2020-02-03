@@ -28,7 +28,7 @@ uint16_t layer1[] = {
   KEY_EXCLAMATION, KEY_AT, KEY_ARROW_UP, KEY_CURLY_BRACKET_OPEN, KEY_CURLY_BRACKET_CLOSE, 0, KEY_PAGE_UP, KEY_7, KEY_8, KEY_9, KEY_TIMES,
   KEY_HASH, KEY_ARROW_LEFT, KEY_ARROW_DOWN, KEY_ARROW_RIGHT, KEY_DOLLAR, 0, KEY_PAGE_DOWN, KEY_4, KEY_5, KEY_6, KEY_PLUS,
   KEY_SQUARE_BRACKET_OPEN, KEY_SQUARE_BRACKET_CLOSE, KEY_ROUND_BRACKET_OPEN, KEY_ROUND_BRACKET_CLOSE, KEY_AMPERSAND, MOD_ALT, KEY_GRACE_ACCENT, KEY_1, KEY_2, KEY_3, KEY_BACKSLASH,
-  0, 0, MOD_CTRL, MOD_SHIFT, KEY_BACKSPACE, MOD_GUI, KEY_SPACE, MOD_L1, KEY_DOT, KEY_0, KEY_EQUALS
+  0x81, 0x80, MOD_CTRL, MOD_SHIFT, KEY_BACKSPACE, MOD_GUI, KEY_SPACE, MOD_L1, KEY_DOT, KEY_0, KEY_EQUALS
 };
 
 bool keys_pressed_old[ROWS * COLUMNS] = { 0 };
@@ -48,6 +48,8 @@ BLEHIDDevice* hid;
 BLECharacteristic* input;
 BLECharacteristic* output;
 
+BLECharacteristic* inputConsumer;
+
 uint8_t buttons = 0;
 uint8_t button1 = 0;
 uint8_t button2 = 0;
@@ -59,12 +61,16 @@ class MyCallbacks : public BLEServerCallbacks {
     connected = true;
     BLE2902* desc = (BLE2902*)input->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
     desc->setNotifications(true);
+
+    Serial.println("connected");
   }
 
   void onDisconnect(BLEServer* pServer){
     connected = false;
     BLE2902* desc = (BLE2902*)input->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
     desc->setNotifications(false);
+
+    Serial.println("disconnected");
   }
 };
 
@@ -78,109 +84,91 @@ class MyCallbacks : public BLEServerCallbacks {
  class MyOutputCallbacks : public BLECharacteristicCallbacks {
  void onWrite(BLECharacteristic* me){
     uint8_t* value = (uint8_t*)(me->getValue().c_str());
-    ESP_LOGI(LOG_TAG, "special keys: %d", *value);
+    printf("special keys: %d", *value);
   }
 };
 
 void taskServer(void*){
 
-    BLEDevice::init("sAtreus");
-    BLEServer *pServer = BLEDevice::createServer();
-    pServer->setCallbacks(new MyCallbacks());
+  BLEDevice::init("sAtreus");
+  BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyCallbacks());
 
-    hid = new BLEHIDDevice(pServer);
-    input = hid->inputReport(1); // <-- input REPORTID from report map
-    output = hid->outputReport(1); // <-- output REPORTID from report map
+  hid = new BLEHIDDevice(pServer);
+  input = hid->inputReport(1); // <-- input REPORTID from report map
+  output = hid->outputReport(1); // <-- output REPORTID from report map
+  inputConsumer = hid->inputReport(2);
 
-    output->setCallbacks(new MyOutputCallbacks());
+  output->setCallbacks(new MyOutputCallbacks());
 
-    std::string name = "simon";
-    hid->manufacturer()->setValue(name);
+  std::string name = "simon";
+  hid->manufacturer()->setValue(name);
 
-    hid->pnp(0x02, 0xe502, 0xa111, 0x0210);
-    hid->hidInfo(0x00,0x02);
+  hid->pnp(0x02, 0xe502, 0xa111, 0x0210);
+  hid->hidInfo(0x00,0x02);
 
   BLESecurity *pSecurity = new BLESecurity();
-//  pSecurity->setKeySize();
+  //pSecurity->setKeySize();
   pSecurity->setAuthenticationMode(ESP_LE_AUTH_BOND);
 
-    const uint8_t report[] = {
-      USAGE_PAGE(1),      0x01,       // Generic Desktop Ctrls
-      USAGE(1),           0x06,       // Keyboard
-      COLLECTION(1),      0x01,       // Application
-      REPORT_ID(1),       0x01,        //   Report ID (1)
-      USAGE_PAGE(1),      0x07,       //   Kbrd/Keypad
-      USAGE_MINIMUM(1),   0xE0,
-      USAGE_MAXIMUM(1),   0xE7,
-      LOGICAL_MINIMUM(1), 0x00,
-      LOGICAL_MAXIMUM(1), 0x01,
-      REPORT_SIZE(1),     0x01,       //   1 uint8_t (Modifier)
-      REPORT_COUNT(1),    0x08,
-      HIDINPUT(1),           0x02,       //   Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position
-      REPORT_COUNT(1),    0x01,       //   1 uint8_t (Reserved)
-      REPORT_SIZE(1),     0x08,
-      HIDINPUT(1),           0x01,       //   Const,Array,Abs,No Wrap,Linear,Preferred State,No Null Position
-      REPORT_COUNT(1),    0x06,       //   6 uint8_ts (Keys)
-      REPORT_SIZE(1),     0x08,
-      LOGICAL_MINIMUM(1), 0x00,
-      LOGICAL_MAXIMUM(1), 0x65,       //   101 keys
-      USAGE_MINIMUM(1),   0x00,
-      USAGE_MAXIMUM(1),   0x65,
-      HIDINPUT(1),           0x00,       //   Data,Array,Abs,No Wrap,Linear,Preferred State,No Null Position
-      REPORT_COUNT(1),    0x05,       //   5 bits (Num lock, Caps lock, Scroll lock, Compose, Kana)
-      REPORT_SIZE(1),     0x01,
-      USAGE_PAGE(1),      0x08,       //   LEDs
-      USAGE_MINIMUM(1),   0x01,       //   Num Lock
-      USAGE_MAXIMUM(1),   0x05,       //   Kana
-      HIDOUTPUT(1),          0x02,       //   Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile
-      REPORT_COUNT(1),    0x01,       //   3 bits (Padding)
-      REPORT_SIZE(1),     0x03,
-      HIDOUTPUT(1),          0x01,       //   Const,Array,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile
-      END_COLLECTION(0)
-    };
+  const uint8_t report[] = {
+    USAGE_PAGE(1),      0x01,       // Generic Desktop Ctrls
+    USAGE(1),           0x06,       // Keyboard
+    COLLECTION(1),      0x01,       // Application
+    REPORT_ID(1),       0x01,        //   Report ID (1)
+    USAGE_PAGE(1),      0x07,       //   Kbrd/Keypad
+    USAGE_MINIMUM(1),   0xE0,
+    USAGE_MAXIMUM(1),   0xE7,
+    LOGICAL_MINIMUM(1), 0x00,
+    LOGICAL_MAXIMUM(1), 0x01,
+    REPORT_SIZE(1),     0x01,       //   1 uint8_t (Modifier)
+    REPORT_COUNT(1),    0x08,
+    HIDINPUT(1),           0x02,       //   Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position
+    REPORT_COUNT(1),    0x01,       //   1 uint8_t (Reserved)
+    REPORT_SIZE(1),     0x08,
+    HIDINPUT(1),           0x01,       //   Const,Array,Abs,No Wrap,Linear,Preferred State,No Null Position
+    REPORT_COUNT(1),    0x06,       //   6 uint8_ts (Keys)
+    REPORT_SIZE(1),     0x08,
+    LOGICAL_MINIMUM(1), 0x00,
+    LOGICAL_MAXIMUM(1), 0x65,       //   101 keys
+    USAGE_MINIMUM(1),   0x00,
+    USAGE_MAXIMUM(1),   0x65,
+    HIDINPUT(1),           0x00,       //   Data,Array,Abs,No Wrap,Linear,Preferred State,No Null Position
+    REPORT_COUNT(1),    0x05,       //   5 bits (Num lock, Caps lock, Scroll lock, Compose, Kana)
+    REPORT_SIZE(1),     0x01,
+    USAGE_PAGE(1),      0x08,       //   LEDs
+    USAGE_MINIMUM(1),   0x01,       //   Num Lock
+    USAGE_MAXIMUM(1),   0x05,       //   Kana
+    HIDOUTPUT(1),          0x02,       //   Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile
+    REPORT_COUNT(1),    0x01,       //   3 bits (Padding)
+    REPORT_SIZE(1),     0x03,
+    HIDOUTPUT(1),          0x01,       //   Const,Array,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile
+    END_COLLECTION(0),
+    USAGE_PAGE(1),      0x0c,       // usage page: consumer devices
+    USAGE(1),           0x01,       // usage: consumer control
+    COLLECTION(1),      0x01,       // collection: application
+    REPORT_ID(1),       0x02,       // report id: 2
+    LOGICAL_MINIMUM(1), 0x01,       // logical minimum: 1
+    LOGICAL_MAXIMUM(2), 0x9c, 0x02, // logical maximum: 0x029c
+    USAGE_MINIMUM(1),   0x01,       // usage minimum: 1
+    USAGE_MAXIMUM(2),   0x9c, 0x02, // usage maximum: 0x029c
+    REPORT_SIZE(1),     0x10,       // report size: 16
+    REPORT_COUNT(1),    0x01,       // report count: 1
+    HIDINPUT(1),        0x00,       // input: data, array, abs
+    END_COLLECTION(0)
+  };
 
-    
-    //0x05, 0x0C, /*        Usage Page (Consumer Devices)        */
-    //0x09, 0x01, /*        Usage (Consumer Control)            */
-    //0xA1, 0x01, /*        Collection (Application)            */
-    //0x85, 0x02,    /*        Report ID=2                            */
-    //0x05, 0x0C, /*        Usage Page (Consumer Devices)        */
-    //0x15, 0x00, /*        Logical Minimum (0)                    */
-    //0x25, 0x01, /*        Logical Maximum (1)                    */
-    //0x75, 0x01, /*        Report Size (1)                        */
-    //0x95, 0x10, /*        Report Count (16)                    */
-    //0x09, 0xe2, // USAGE (Mute) 0x01
-    //0x09, 0xe9, // USAGE (Volume Up) 0x02
-    //0x09, 0xea, // USAGE (Volume Down) 0x03
-    //0x09, 0xcd, // USAGE (Play/Pause) 0x04
-    //0x09, 0xb7, // USAGE (Stop) 0x05
-    //0x09, 0xb6, // USAGE (Scan Previous Track) 0x06
-    //0x09, 0xb5, // USAGE (Scan Next Track) 0x07
-    //0x0a, 0x8a, 0x01, // USAGE (Mail) 0x08
-    //0x0a, 0x92, 0x01, // USAGE (Calculator) 0x09
-    //0x0a, 0x21, 0x02, // USAGE (www search) 0x0a
-    //0x0a, 0x23, 0x02, // USAGE (www home) 0x0b
-    //0x0a, 0x2a, 0x02, // USAGE (www favorites) 0x0c
-    //0x0a, 0x27, 0x02, // USAGE (www refresh) 0x0d
-    //0x0a, 0x26, 0x02, // USAGE (www stop) 0x0e
-    //0x0a, 0x25, 0x02, // USAGE (www forward) 0x0f
-    //0x0a, 0x24, 0x02, // USAGE (www back) 0x10
-    //0x81, 0x62, // INPUT (Data,Var,Abs,NPrf,Null)    
-    //0xC0,        /*        End Collection                        */
+  hid->reportMap((uint8_t*)report, sizeof(report));
+  hid->startServices();
 
-    
+  BLEAdvertising *pAdvertising = pServer->getAdvertising();
+  pAdvertising->setAppearance(HID_KEYBOARD);
+  pAdvertising->addServiceUUID(hid->hidService()->getUUID());
+  pAdvertising->start();
+  hid->setBatteryLevel(7);
 
-    hid->reportMap((uint8_t*)report, sizeof(report));
-    hid->startServices();
-
-    BLEAdvertising *pAdvertising = pServer->getAdvertising();
-    pAdvertising->setAppearance(HID_KEYBOARD);
-    pAdvertising->addServiceUUID(hid->hidService()->getUUID());
-    pAdvertising->start();
-    hid->setBatteryLevel(7);
-
-    ESP_LOGD(LOG_TAG, "Advertising started!");
-    delay(portMAX_DELAY);
+  ESP_LOGD(LOG_TAG, "Advertising started!");
+  delay(portMAX_DELAY);
 };
 
 void setup() {
@@ -258,6 +246,7 @@ void loop() {
     Serial.printf("\n\n\n");
 
     int keyCodesSentIndex = 0;
+    uint16_t consumerKeyCode = 0;
 
     for (int i = 0; i < ROWS * COLUMNS; i++) {
       if (keyCodes[i] != 0) {
@@ -274,6 +263,8 @@ void loop() {
           modifiersSent |= (keyCodes[i] >> 8);
           keyCodesSent[keyCodesSentIndex] = keyCodes[i];
           ++keyCodesSentIndex;
+        } else if (keyCodeType == CONSUMER) {
+          consumerKeyCode = 0xFF & keyCodes[i];
         }
       }
     }
@@ -282,9 +273,16 @@ void loop() {
 
     Serial.printf("modifiers sent: %02x\n", modifiersSent);
     Serial.printf("keys sent: %i %i %i %i %i %i\n", keyCodesSent[0],keyCodesSent[1],keyCodesSent[2],keyCodesSent[3],keyCodesSent[4],keyCodesSent[5]);
+    Serial.printf("consumerKeyCode: %i\n", consumerKeyCode);
 
     input->setValue(msg,sizeof(msg));
     input->notify();
+    
+    uint8_t msgConsumer[] = {consumerKeyCode, consumerKeyCode >> 8};
+    Serial.printf("consumer report: %02x %02x\n", msgConsumer[0], msgConsumer[1]);
+
+    inputConsumer->setValue(msgConsumer, sizeof(msgConsumer));
+    inputConsumer->notify();
   }
 
   delay(1);
